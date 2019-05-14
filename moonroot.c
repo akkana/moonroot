@@ -14,6 +14,18 @@
 #include <X11/keysym.h>
 #include <X11/xpm.h>
 #include <X11/extensions/shape.h>
+#include <X11/Xmd.h>   // for CARD32
+#include <Xm/MwmUtil.h> // for XA_MOTIF_WM_HINTS
+
+/* To ask window managers to turn off decorations: */
+#define MWM_HINTS_DECORATIONS   (1L << 1)       /* MwmHints.decorations */
+typedef struct _mwmhints {
+  CARD32 flags;
+  CARD32 functions;
+  CARD32 decorations;
+  INT32  input_mode;
+  CARD32 status;
+} MWMHints;
 
 #include "fullmoon100.xpm"
 #include "fullmoon174.xpm"
@@ -81,6 +93,19 @@ void InitWindow(int argc, char** argv)
     }
     XSetClassHint(dpy, win, classHint);
     XFree(classHint);
+
+    if (XInternAtom (dpy, "_MOTIF_WM_INFO", True) != None)
+    {
+        MWMHints mwmhints;
+        Atom hints = XInternAtom (dpy, "_MOTIF_WM_HINTS", True);
+
+        mwmhints.flags = MWM_HINTS_DECORATIONS;
+        mwmhints.decorations = 0;
+        XChangeProperty (dpy, win, hints, hints, 32,
+                         PropModeReplace,
+                         (unsigned char *)&mwmhints, PROP_MWM_HINTS_ELEMENTS);
+    }
+    /* else window manager doesn't support MWM hints */
 
     XSelectInput(dpy, win,
                  ExposureMask
@@ -170,7 +195,10 @@ int HandleEvent()
 
 static void Usage()
 {
+    printf("MoonRoot version 0.4, by Akkana.\n\n");
     printf("Usage: moonroot [-s]\n");
+    printf("\n-s gives a smaller moon.\n");
+    exit(0);
 }
 
 int main(int argc, char** argv)
