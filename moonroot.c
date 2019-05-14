@@ -9,6 +9,8 @@
 
 #include <stdio.h>
 #include <stdlib.h>    // for getenv
+#include <libgen.h>    // for basename
+#include <time.h>      // for timezone
 #include <X11/keysym.h>
 #include <X11/xpm.h>
 #include <X11/extensions/shape.h>
@@ -35,10 +37,12 @@ void Quit()
     exit(0);
 }
 
-void InitWindow()
+void InitWindow(int argc, char** argv)
 {
+    char* appname;
     XpmAttributes xpmattr;
     int rv;
+    XClassHint* classHint;
 
     if ((dpy = XOpenDisplay(getenv("DISPLAY"))) == 0)
     {
@@ -58,6 +62,25 @@ void InitWindow()
         fprintf(stderr, "Can't create window\n");
         exit(1);
     }
+
+    if (argv && argc > 1)
+        appname = basename(argv[0]);
+    else
+        appname = "moonroot";
+
+    XStoreName(dpy, win, appname);
+    /* XStoreName is just a shortcut to XSetWMName */
+
+    classHint = XAllocClassHint();
+    if (classHint) {
+        classHint->res_name = appname;
+        /* this name is the one the window manager uses,
+         * not the same as the XA_NAME prop set by XStoreName.
+         */
+        classHint->res_class = "MoonRoot";
+    }
+    XSetClassHint(dpy, win, classHint);
+    XFree(classHint);
 
     XSelectInput(dpy, win,
                  ExposureMask
@@ -92,7 +115,11 @@ void Draw()
               fullmoonDiam, fullmoonDiam,
               0, 0);
 
+    /* time() appears to be UTC already,
+     * though the man page isn't clear about it.
+     */
     time(&now);
+
     PaintDarkside(fullmoonDiam, now);
 
     if (XShapeQueryExtension(dpy, &shape_event_base, &shape_error_base))
@@ -161,7 +188,11 @@ int main(int argc, char** argv)
         ++argv;
     }
 
-    InitWindow();
+    InitWindow(argc, argv);
+
+    /* run in the background */
+    if (fork() > 0)
+        return 0;
 
     while (HandleEvent() >= 0)
         ;
