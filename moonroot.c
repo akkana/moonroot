@@ -199,7 +199,7 @@ int HandleEvent()
 
 static void Usage()
 {
-    printf("MoonRoot version 0.5, by Akkana.\n\n");
+    printf("MoonRoot version 0.6, by Akkana.\n\n");
     printf("Usage: moonroot [-s]\n");
     printf("\n-s gives a smaller moon.\n");
     exit(0);
