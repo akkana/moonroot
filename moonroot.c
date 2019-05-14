@@ -15,9 +15,9 @@
 #include <X11/xpm.h>
 #include <X11/extensions/shape.h>
 #include <X11/Xmd.h>   // for CARD32
-#include <Xm/MwmUtil.h> // for XA_MOTIF_WM_HINTS
 
 /* To ask window managers to turn off decorations: */
+#define PROP_MWM_HINTS_ELEMENTS             5
 #define MWM_HINTS_DECORATIONS   (1L << 1)       /* MwmHints.decorations */
 typedef struct _mwmhints {
   CARD32 flags;
@@ -54,7 +54,8 @@ void InitWindow(int argc, char** argv)
     char* appname;
     XpmAttributes xpmattr;
     int rv;
-    XClassHint* classHint;
+    XClassHint classHint;
+    XSizeHints size;
 
     if ((dpy = XOpenDisplay(getenv("DISPLAY"))) == 0)
     {
@@ -75,6 +76,13 @@ void InitWindow(int argc, char** argv)
         exit(1);
     }
 
+    size.flags = PMinSize | PMaxSize;
+    size.max_width = 0;
+    size.min_width = XWinSize;
+    size.max_height = 0;
+    size.min_height = YWinSize;
+    XSetWMNormalHints(dpy, win, &size);    
+
     if (argv && argc > 1)
         appname = basename(argv[0]);
     else
@@ -83,16 +91,12 @@ void InitWindow(int argc, char** argv)
     XStoreName(dpy, win, appname);
     /* XStoreName is just a shortcut to XSetWMName */
 
-    classHint = XAllocClassHint();
-    if (classHint) {
-        classHint->res_name = appname;
-        /* this name is the one the window manager uses,
-         * not the same as the XA_NAME prop set by XStoreName.
-         */
-        classHint->res_class = "MoonRoot";
-    }
-    XSetClassHint(dpy, win, classHint);
-    XFree(classHint);
+    classHint.res_name = appname;
+    /* this name is the one the window manager uses,
+     * not the same as the XA_NAME prop set by XStoreName.
+     */
+    classHint.res_class = "MoonRoot";
+    XSetClassHint(dpy, win, &classHint);
 
     if (XInternAtom (dpy, "_MOTIF_WM_INFO", True) != None)
     {
@@ -195,7 +199,7 @@ int HandleEvent()
 
 static void Usage()
 {
-    printf("MoonRoot version 0.4, by Akkana.\n\n");
+    printf("MoonRoot version 0.5, by Akkana.\n\n");
     printf("Usage: moonroot [-s]\n");
     printf("\n-s gives a smaller moon.\n");
     exit(0);
