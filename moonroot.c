@@ -13,16 +13,18 @@
 #include <X11/xpm.h>
 #include <X11/extensions/shape.h>
 
+#include "fullmoon100.xpm"
+#include "fullmoon174.xpm"
+static char** fullmoonXPM = fullmoon174_xpm;
 static unsigned int fullmoonDiam = 174;
-#include "fullmoon.xpm"
 
 Display* dpy;
 int screen;
 Window win;
 GC gc = 0;
 
-int XWinSize = 500;
-int YWinSize = 500;
+int XWinSize = 0;
+int YWinSize = 0;
 
 static Pixmap moonpix;
 static Pixmap moonmask;
@@ -65,7 +67,7 @@ void InitWindow()
 
     /* Draw the moon bits */
     xpmattr.valuemask = 0;
-    rv = XpmCreatePixmapFromData(dpy, win, fullmoon_xpm,
+    rv = XpmCreatePixmapFromData(dpy, win, fullmoonXPM,
                                  &moonpix,
                                  &moonmask,
                                  &xpmattr);
@@ -139,8 +141,26 @@ int HandleEvent()
     return 0;
 }
 
+static void Usage()
+{
+    printf("Usage: moonroot [-s]\n");
+}
+
 int main(int argc, char** argv)
 {
+    while (argc > 1) {
+        /* Smaller image */
+        if (argv[1][0] == '-' && argv[1][1] == 's') {
+            fullmoonXPM = fullmoon100_xpm;
+            fullmoonDiam = 100;
+        }
+        else {
+            Usage();
+        }
+        --argc;
+        ++argv;
+    }
+
     InitWindow();
 
     while (HandleEvent() >= 0)
