@@ -13,4 +13,3 @@ moonroot: $(OBJS)
 
 clean:
 	-rm -f *.[oas] *.ld core moonroot
-
