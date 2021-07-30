@@ -8,6 +8,7 @@
 #include "moonroot.h"
 
 #include <stdio.h>
+#include <unistd.h>    // for fork
 #include <stdlib.h>    // for getenv
 #include <libgen.h>    // for basename
 #include <time.h>      // for timezone
@@ -17,30 +18,22 @@
 #include <X11/Xmd.h>   // for CARD32
 #include <X11/Xutil.h>
 #include <X11/Xatom.h>
- #define MAX(a,b)	((a>b)? a: b)
- typedef struct{
 
-    unsigned long flags;
-
-    unsigned long functions;
-
-    unsigned long decorations;
-
-    long inputMode;
-
-    unsigned long status;
- } Hints;
- 
-/* To ask window managers to turn off decorations: */
+/* To ask window managers to turn off decorations.
+ * See <Xm/MwmUtil.h> from libmotif-dev
+ * but it applies even when not using Motif
+ * so the structure is included here in case libmotif-dev isn't installed.
+ */
 #define PROP_MWM_HINTS_ELEMENTS             5
 #define MWM_HINTS_DECORATIONS   (1L << 1)       /* MwmHints.decorations */
+
 typedef struct _mwmhints {
-  CARD32 flags;
-  CARD32 functions;
-  CARD32 decorations;
-  INT32  input_mode;
-  CARD32 status;
-} MWMHints;
+    CARD32 flags;
+    CARD32 functions;
+    CARD32 decorations;
+    INT32  input_mode;
+    CARD32 status;
+} MotifWmHints;
 
 #include "fullmoon100.xpm"
 #include "fullmoon174.xpm"
@@ -49,25 +42,18 @@ static unsigned int fullmoonDiam = 174;
 
 Display* dpy;
 int screen;
-Window win, dummy;
-     int run, x, y, X, Y; 
-     int btn_pressed = 0, done = 0;
-        XEvent ev;
-      
+Window win;
+
 GC gc = 0;
-	int input_mask = KeyPressMask | KeyReleaseMask | ButtonPressMask |
-				 ButtonReleaseMask | EnterWindowMask | LeaveWindowMask |
-				 PointerMotionMask | Button1MotionMask | Button2MotionMask |
-				 Button3MotionMask | Button4MotionMask | Button5MotionMask |
-				 ButtonMotionMask | KeymapStateMask | ExposureMask |
-				 VisibilityChangeMask | StructureNotifyMask | SubstructureNotifyMask |
-				 SubstructureRedirectMask | FocusChangeMask | PropertyChangeMask |
-				 ColormapChangeMask | OwnerGrabButtonMask;
+
 int XWinSize = 0;
 int YWinSize = 0;
 
 static Pixmap moonpix;
 static Pixmap moonmask;
+
+int lastMouseX=-1,
+    lastMouseY=-1;
 
 void Quit()
 {
@@ -83,6 +69,10 @@ void InitWindow(int argc, char** argv)
     XClassHint classHint;
     XSizeHints size;
 
+    MotifWmHints hints;
+    Atom property;
+    Atom state, skip;
+
     if ((dpy = XOpenDisplay(getenv("DISPLAY"))) == 0)
     {
         fprintf(stderr, "Can't open display: %s\n", getenv("DISPLAY"));
@@ -96,7 +86,7 @@ void InitWindow(int argc, char** argv)
                               0, 0, XWinSize, YWinSize, 3,
                               WhitePixel(dpy, screen),
                               BlackPixel(dpy, screen));
-                              
+
     if (!win)
     {
         fprintf(stderr, "Can't create window\n");
@@ -108,7 +98,7 @@ void InitWindow(int argc, char** argv)
     size.min_width = XWinSize;
     size.max_height = 0;
     size.min_height = YWinSize;
-    XSetWMNormalHints(dpy, win, &size);    
+    XSetWMNormalHints(dpy, win, &size);
 
     if (argv && argc > 1)
         appname = basename(argv[0]);
@@ -125,34 +115,23 @@ void InitWindow(int argc, char** argv)
     classHint.res_class = "MoonRoot";
     XSetClassHint(dpy, win, &classHint);
 
-    {
+    state = XInternAtom(dpy, "_NET_WM_STATE", True);
+    skip = XInternAtom(dpy, "_NET_WM_STATE_SKIP_TASKBAR", True);
 
-        Hints hints;
+    hints.flags = 2;
+    hints.decorations = 0;
 
-        Atom property;
-          Atom       state, skip;
-     state = XInternAtom(dpy, "_NET_WM_STATE", True);
-  skip = XInternAtom(dpy, "_NET_WM_STATE_SKIP_TASKBAR", True);
-        hints.flags = 2;
+    property = XInternAtom(dpy, "_MOTIF_WM_HINTS", True);
 
-        hints.decorations = 0;
+    XChangeProperty(dpy, win, property, property, 32,
+                    PropModeReplace, (unsigned char *)&hints, 5);
 
-        property = XInternAtom(dpy, "_MOTIF_WM_HINTS", True);
+    XChangeProperty(dpy, win, state, XA_ATOM, 32,
+                    PropModeReplace, (unsigned char*)&skip, 1);
 
-        XChangeProperty(dpy, win, property, property, 32, PropModeReplace, (unsigned char *)&hints, 5);
-        
-          XChangeProperty(dpy, win, state, XA_ATOM, 32,
-		  PropModeReplace, (unsigned char*)&skip, 1);
-
-
-    }
-
-//	XSelectInput(dpy, win, input_mask); 
- 
-    /*
     if (XInternAtom (dpy, "_MOTIF_WM_INFO", True) != None)
     {
-        MWMHints mwmhints;
+        MotifWmHints mwmhints;
         Atom hints = XInternAtom (dpy, "_MOTIF_WM_HINTS", True);
 
         mwmhints.flags = MWM_HINTS_DECORATIONS;
@@ -161,10 +140,13 @@ void InitWindow(int argc, char** argv)
                          PropModeReplace,
                          (unsigned char *)&mwmhints, PROP_MWM_HINTS_ELEMENTS);
     }
-    */
     /* else window manager doesn't support MWM hints */
 
- //  XSelectInput(dpy, win, ExposureMask | KeyPressMask| StructureNotifyMask);
+    XSelectInput(dpy, win,
+                 ExposureMask
+                 | KeyPressMask
+                 | ButtonPressMask | ButtonReleaseMask | Button1MotionMask
+                 | StructureNotifyMask);
 
     /* Draw the moon bits */
     xpmattr.valuemask = 0;
@@ -181,41 +163,7 @@ void InitWindow(int argc, char** argv)
     gc = XCreateGC(dpy, win, GCForeground | GCBackground, &gcValues);
 
     XMapWindow(dpy, win);
-        XFlush(dpy);            /* Flush for just in case */
-/*
-      while (!done) {
-    if (!XPending(dpy)) { usleep(1000); continue; } // fixes the 100% CPU hog issue
-    if ( (XNextEvent(dpy, &ev) >= 0) ) {
-      switch (ev.type) {
-        case MotionNotify:
-          if (btn_pressed) {
-
-            XTranslateCoordinates(dpy, win, win, ev.xmotion.x_root, ev.xmotion.y_root,  &x, &y, &dummy);
- //           XTranslateCoordinates(dpy, win, win, ev.xbutton.x, ev.xbutton.y, &rect_x, &rect_y, &child_window);
- 			XMoveWindow(dpy, win, (MAX(X,x) ? (x-X):(X-x)), (MAX(Y,Y) ? (y-Y):(Y-y)));
-// 			XMoveWindow(dpy, win, x, y);
-//            XMoveWindow(dpy, win, rect_x - root_x + xw_attrs.x, rect_y - root_y + xw_attrs.y);
-            //XFlush(dpy);
-          }
-          continue;
-        case ButtonPress:
-         btn_pressed = 1;
-        			if(ev.xbutton.button == 3)
-				done = 1;
-         
- //         rect_x = xw_attrs.x;
-//          rect_y = xw_attrs.y;
-				X=ev.xbutton.x;
-				Y=ev.xbutton.y;
-          break;
-        case ButtonRelease:
-          btn_pressed = 0;
-          break;
-
-      }
-    }
-  }
-  */
+    XFlush(dpy);            /* Flush just in case */
 }
 
 void Draw()
@@ -236,8 +184,8 @@ void Draw()
     PaintDarkside(fullmoonDiam, now);
 
     if (XShapeQueryExtension(dpy, &shape_event_base, &shape_error_base))
-	XShapeCombineMask(dpy, win, ShapeBounding,
-			  0, 0, moonmask, ShapeSet);
+        XShapeCombineMask(dpy, win, ShapeBounding,
+                          0, 0, moonmask, ShapeSet);
 }
 
 int HandleEvent()
@@ -247,66 +195,74 @@ int HandleEvent()
     char buffer[20];
     KeySym keysym;
     XComposeStatus compose;
-//	XSelectInput(dpy, win, input_mask); 
+
+    Window dummy;
+    int curWinX, curWinY;
+
     XNextEvent(dpy, &event);
     switch (event.type)
     {
-      case Expose:
-      case MapNotify:
-          Draw();
-          break;
-      case ConfigureNotify:
-          XWinSize = event.xconfigure.width;
-          YWinSize = event.xconfigure.height;
-          //printf("ConfigureNotify: now (%d, %d)\n", XWinSize, YWinSize);
-          break;
-      case MotionNotify:
-         if (btn_pressed) {
+        case Expose:
+        case MapNotify:
+            Draw();
+            break;
 
-          XTranslateCoordinates(dpy, win, win, event.xmotion.x_root, event.xmotion.y_root,  &x, &y, &dummy);
+        case ConfigureNotify:
+            XWinSize = event.xconfigure.width;
+            YWinSize = event.xconfigure.height;
+            //printf("ConfigureNotify: now (%d, %d)\n", XWinSize, YWinSize);
+            break;
 
- 		  XMoveWindow(dpy, win, (MAX(X,x) ? (x-X):(X-x)), (MAX(Y,Y) ? (y-Y):(Y-y)));
+        case ButtonPress:
+            lastMouseX = event.xbutton.x_root;
+            lastMouseY = event.xbutton.y_root;
+            break;
+
+        case ButtonRelease:
+            lastMouseX = lastMouseY = -1;
+            break;
+
+        case MotionNotify:
+            if (lastMouseX > 0) {
+                curWinX = event.xmotion.x_root - event.xmotion.x;
+                curWinY = event.xmotion.y_root - event.xmotion.y;
+                XMoveWindow(dpy, win,
+                            curWinX + event.xmotion.x_root - lastMouseX,
+                            curWinY + event.xmotion.y_root - lastMouseY);
+            }
+            lastMouseX = event.xmotion.x_root;
+            lastMouseY = event.xmotion.y_root;
 
             //XFlush(dpy);
-          }
-        break;
-      case ButtonPress:
-         btn_pressed = 1;
-        			if(event.xbutton.button == 3)
-				done = 1;
-         
- //         rect_x = xw_attrs.x;
-//          rect_y = xw_attrs.y;
-				X=event.xbutton.x;
-				Y=event.xbutton.y;
-        break;
-      case ButtonRelease:
-          btn_pressed = 0;
-        break;          
-      case ReparentNotify: /* When we make the window shaped? */
-      case UnmapNotify:    /* e.g. move to all desktops? */
-      case NoExpose:       /* No idea what this is */
-          break;
-      case KeyPress:
-          XLookupString(&(event.xkey), buffer, sizeof buffer,
-                        &keysym, &compose);
-          switch (keysym)
-          {
-            case XK_q:
-                return -1;
-            default:
-                break;
-          }
-          break;
-      default:
-          printf("Unknown event: %d\n", event.type);
+            break;
+
+        case ReparentNotify: /* When we make the window shaped? */
+        case UnmapNotify:    /* e.g. move to all desktops? */
+        case NoExpose:       /* No idea what this is */
+            break;
+
+        case KeyPress:
+            XLookupString(&(event.xkey), buffer, sizeof buffer,
+                          &keysym, &compose);
+            switch (keysym)
+            {
+                case XK_q:
+                    return -1;
+                default:
+                    break;
+            }
+            break;
+
+        default:
+            printf("Unknown event: %d\n", event.type);
     }
+
     return 0;
 }
 
 static void Usage()
 {
-    printf("MoonRoot version 0.6, by Akkana.\n\n");
+    printf("MoonRoot version 0.7, by Akkana.\n\n");
     printf("Usage: moonroot [-s]\n");
     printf("\n-s gives a smaller moon.\n");
     exit(0);
@@ -314,7 +270,6 @@ static void Usage()
 
 int main(int argc, char** argv)
 {
-
     while (argc > 1) {
         /* Smaller image */
         if (argv[1][0] == '-' && argv[1][1] == 's') {
@@ -329,7 +284,7 @@ int main(int argc, char** argv)
     }
 
     InitWindow(argc, argv);
- 	XSelectInput(dpy, win, input_mask);  
+
     /* run in the background */
     if (fork() > 0)
         return 0;
@@ -340,5 +295,3 @@ int main(int argc, char** argv)
     XFreePixmap(dpy, moonpix);
     return 0;
 }
-
-
