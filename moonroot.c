@@ -239,6 +239,7 @@ int HandleEvent()
         case ReparentNotify: /* When we make the window shaped? */
         case UnmapNotify:    /* e.g. move to all desktops? */
         case NoExpose:       /* No idea what this is */
+        case MappingNotify:  /* not sure why this is called after start */
             break;
 
         case KeyPress:
